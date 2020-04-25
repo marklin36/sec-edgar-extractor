@@ -5,7 +5,7 @@
 Use the following commands to run `edgar_history.py`:
 
 * `git clone https://github.com/marklin36/problem_1.git`
-* `source venv/bin/activate`
+* install all dependencies in `requirements.txt`
 * and then for example: `python edgar_history.py 2016 2019 AAPL GrossProfit`
 
 So there are four command lines arguments for the `edgar_history.py` scirpt:
@@ -33,4 +33,4 @@ Here are a few tested examples:
 
 ## Things to improve
 
-The script is not very robust because exception handling is poor. 
+The script is not very robust because of poor exception handling.
