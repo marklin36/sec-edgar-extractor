@@ -8,8 +8,6 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import sys
 
-
-
 def get_data_from_one_year(company_name, year):
     stock = Stock(company_name)
 
@@ -17,13 +15,25 @@ def get_data_from_one_year(company_name, year):
 
     for i in range(1, 5):
         filing = stock.get_filing(period='quarterly', year=year, quarter=i)
-        income_statement = filing.get_income_statements().reports[0].map
-        balance_sheet = filing.get_balance_sheets().reports[0].map
-        cash_flow = filing.get_cash_flows().reports[0].map
+        try:
+            income_statement = filing.get_income_statements().reports[0].map
+            #balance_sheet = filing.get_balance_sheets().reports[0].map
+            #cash_flow = filing.get_cash_flows().reports[0].map
+        except:
+            continue
 
         one_quarter_data = income_statement
-        one_quarter_data.update(balance_sheet)
-        one_quarter_data.update(cash_flow)
+
+        if filing.get_balance_sheets():
+            balance_sheet = filing.get_balance_sheets().reports[0].map
+            one_quarter_data.update(balance_sheet)
+
+        if filing.get_cash_flows():
+            cash_flow = filing.get_cash_flows().reports[0].map
+            one_quarter_data.update(cash_flow)
+
+        #one_quarter_data.update(balance_sheet)
+        #one_quarter_data.update(cash_flow)
 
         # trick to maintain the same structure of the data
         my_date_obj = namedtuple('MyStruct', 'value')
@@ -92,8 +102,7 @@ def plot(df, field_name, company_name=""):
     ax.xaxis.set_major_formatter(years_fmt)
     ax.xaxis.set_minor_locator(months)
 
-    ax.set_title(field_name[8:])
-
+    ax.set_title(f"Plot of {field_name[8:]} for {company_name}")
     fig.autofmt_xdate()
     plt.legend()
 
@@ -108,24 +117,26 @@ def main():
     field_name = "us-gaap_" + sys.argv[4]
 
     print("Downloading data")
-    data = get_data("AAPL", start_year=start_year, end_year=end_year)
+    data = get_data(company_name, start_year=start_year, end_year=end_year)
     data_keys = get_available_fields_from_data(data)
     df = data_to_pd(data)
-
     print("Download completed")
 
     while True:
         if field_name not in data_keys:
-            for field_name in data_keys:
+            for field_name in sorted(list(data_keys)):
                 print(field_name[8:])
 
             print(f"\n '{sys.argv[4]}' has not been found in the report.")
-            field_name = "us-gaap_" + input("\n Enter the field from the list above: ")
+            field_name = "us-gaap_" + input("\n Enter the field from the list above: \n")
 
-        plot(df, field_name, "AAPL")
+            continue
+
+        plot(df, field_name, company_name)
+
         print("\n The generated plot has been saved in figures directory.")
 
-        field_name = input("\n Please enter new field or type 'exit' to close the program or load new data.")
+        field_name = input("\n Please enter new field or type 'exit' to close the program (and load new data) \n")
 
         if field_name == 'exit':
             sys.exit()

@@ -169,9 +169,8 @@ class Filing:
             if short_name == report_short_name.lower():
                 filename = report.find('htmlfilename').get_text()
                 return filename
-        print(f'could not find anything for ShortName {report_short_name.lower()}')
+        #print(f'could not find anything for ShortName {report_short_name.lower()}')
         return None
-
 
 
     def get_income_statements(self):
