@@ -11,51 +11,57 @@ import sys
 def get_data_from_one_year(company_name, year):
     stock = Stock(company_name)
 
-    data = []
+    one_year_income_statements = []
+    one_year_balance_sheets = []
+    one_year_cash_flows = []
 
     for i in range(1, 5):
         filing = stock.get_filing(period='quarterly', year=year, quarter=i)
-        try:
-            income_statement = filing.get_income_statements().reports[0].map
-            #balance_sheet = filing.get_balance_sheets().reports[0].map
-            #cash_flow = filing.get_cash_flows().reports[0].map
-        except:
-            continue
 
-        one_quarter_data = income_statement
+        income_statements = filing.get_income_statements().reports
+        balance_sheets = filing.get_balance_sheets().reports
+        cash_flows = filing.get_cash_flows().reports
 
-        if filing.get_balance_sheets():
-            balance_sheet = filing.get_balance_sheets().reports[0].map
-            one_quarter_data.update(balance_sheet)
+        income_statement = None
+        for report in income_statements:
+            # choose the report from the correct year, covering only 3 months (not cumulative)
+            report_year = int(report.date.year)
+            report_period = int(report.months)
 
-        if filing.get_cash_flows():
-            cash_flow = filing.get_cash_flows().reports[0].map
-            one_quarter_data.update(cash_flow)
+            # this condition can be relaxed later
+            if report_year == year and report_period == 3:
+                income_statement = report.map
+                income_statement['exact_date'] = report.date
+                income_statement['period'] = 3
+                break
+        one_year_income_statements.append(income_statement)
 
-        #one_quarter_data.update(balance_sheet)
-        #one_quarter_data.update(cash_flow)
+        balance_sheet = None
+        for report in balance_sheets:
+            report_year = int(report.date.year)
+            if report_year == year:
+                balance_sheet = report.map
+                balance_sheet['exact_date'] = report.date
+                balance_sheet['period'] = None
+                break
+        one_year_balance_sheets.append(balance_sheet)
 
-        # trick to maintain the same structure of the data
-        my_date_obj = namedtuple('MyStruct', 'value')
-        date = my_date_obj(value=f"{year}_{i}")
-        one_quarter_data["date"] = date
+        cash_flow = None
+        for report in cash_flows:
+            report_year = int(report.date.year)
+            report_period = int(report.months)
+            if report_year == year:
+                cash_flow = report.map
+                cash_flow['exact_date'] = report.date
+                cash_flow['period'] = report_period
+                break
+        one_year_cash_flows.append(cash_flow)
 
-        data.append(one_quarter_data)
-
-    return data
-
-
-def get_available_fields_from_data(data):
-    all_fields = set()
-
-    # add the fields from the first quarter
-    all_fields.update(data[0].keys())
-
-    for quarter_data in data[1:]:
-        all_fields.intersection_update(quarter_data.keys())
-
-    return all_fields
-
+    return {
+        "income_statements": one_year_income_statements,
+        "balance_sheets": one_year_balance_sheets,
+        "cash_flows": one_year_cash_flows
+    }
 
 def get_data(company_name, start_year, end_year):
     data = []
@@ -63,39 +69,71 @@ def get_data(company_name, start_year, end_year):
         one_year_data = get_data_from_one_year(company_name, year)
         # sleep for 0.5 second
         time.sleep(0.5)
-        data = data + one_year_data
+        data.append(one_year_data)
 
-    return data
+    income_statements = []
+    for one_year_data in data:
+        income_statements = income_statements + one_year_data['income_statements']
 
+    balance_sheets = []
+    for one_year_data in data:
+        balance_sheets = balance_sheets + one_year_data['balance_sheets']
 
-def data_to_pd(data):
-    col_names = list(get_available_fields_from_data(data))
-    col_names.sort()
+    cash_flows = []
+    for one_year_data in data:
+        cash_flows = cash_flows + one_year_data['cash_flows']
+
+    return {
+        "income_statements": income_statements,
+        "one_year_balance_sheets": balance_sheets,
+        "one_year_cash_flows": cash_flows
+    }
+
+def data_to_df(data):
+    """
+    A list of
+    :param data: A list of dictionaries
+    :return: pandas data frame
+    """
+    # find all the keys
+    all_keys = set()
+    for report in data:
+        if report:
+            all_keys.update(report.keys())
+
+    all_keys = list(all_keys)
+    all_keys.remove('exact_date')
+    all_keys.remove('period')
+    all_keys.sort()
+    columns = ['exact_date', 'period'] + all_keys
 
     rows = []
-
     for q_data in data:
-        row = [q_data[key].value for key in col_names]
-        rows.append(row)
+        if q_data:
+            row = [q_data['exact_date'], q_data['period']]
+            for key in all_keys:
+                if key in q_data.keys():
+                    row.append(q_data[key].value)
+                else:
+                    row.append(None)
 
-    df = pd.DataFrame(np.array(rows), columns=col_names)
-    columns = list(df.columns)
-    columns.remove("date")
-    df[columns] = df[columns].apply(pd.to_numeric)
+            rows.append(row)
 
-    df['date'] = df['date'].apply(lambda s: s[:4] + str(3 * int(s[5])) + "01")
-    df['date'] = pd.to_datetime(df['date'], format='%Y%m%d', errors='ignore')
+    df = pd.DataFrame(np.array(rows), columns=columns)
+    df[all_keys] = df[all_keys].apply(pd.to_numeric)
+    df.drop_duplicates(inplace=True)
+    df['exact_date'] = pd.to_datetime(df['exact_date'], format='%Y%m%d', errors='raise')
 
     return df
 
 
 def plot(df, field_name, company_name=""):
-    years = mdates.YearLocator()  # every year
-    months = mdates.MonthLocator()  # every month
+    years = mdates.YearLocator()
+    months = mdates.MonthLocator()
     years_fmt = mdates.DateFormatter('%Y')
 
     fig, ax = plt.subplots(figsize=(15, 8))
-    ax.plot('date', field_name, data=df, label=field_name)
+    ax.plot('exact_date', field_name, data=df, label=field_name)
 
     # format the ticks
     ax.xaxis.set_major_locator(years)
@@ -109,6 +147,9 @@ def plot(df, field_name, company_name=""):
     plt.savefig(f"figures/{company_name}_{field_name}.png", dpi=300)
     plt.show()
 
+###########################################################################
+###########################################################################
+
 
 def main():
     start_year = int(sys.argv[1])
@@ -118,30 +159,36 @@ def main():
 
     print("Downloading data")
     data = get_data(company_name, start_year=start_year, end_year=end_year)
-    data_keys = get_available_fields_from_data(data)
-    df = data_to_pd(data)
-    print("Download completed")
 
-    while True:
-        if field_name not in data_keys:
-            for field_name in sorted(list(data_keys)):
-                print(field_name[8:])
+    df = data_to_df(data['income_statements'])
 
-            print(f"\n '{sys.argv[4]}' has not been found in the report.")
-            field_name = "us-gaap_" + input("\n Enter the field from the list above: \n")
+    plot(df, "us-gaap_GrossProfit")
 
-            continue
-
-        plot(df, field_name, company_name)
-
-        print("\n The generated plot has been saved in figures directory.")
-
-        field_name = input("\n Please enter new field or type 'exit' to close the program (and load new data) \n")
-
-        if field_name == 'exit':
-            sys.exit()
-        else:
-            field_name = "us-gaap_" + field_name
+    print(df.head(100))
+    # data_keys = get_available_fields_from_data(data)
+    # df = data_to_pd(data)
+    # print("Download completed")
+    #
+    # while True:
+    #     if field_name not in data_keys:
+    #         for field_name in sorted(list(data_keys)):
+    #             print(field_name[8:])
+    #
+    #         print(f"\n '{sys.argv[4]}' has not been found in the report.")
+    #         field_name = "us-gaap_" + input("\n Enter the field from the list above: \n")
+    #
+    #         continue
+    #
+    #     plot(df, field_name, company_name)
+    #
+    #     print("\n The generated plot has been saved in figures directory.")
+    #
+    #     field_name = input("\n Please enter new field or type 'exit' to close the program (and load new data) \n")
+    #
+    #     if field_name == 'exit':
+    #         sys.exit()
+    #     else:
+    #         field_name = "us-gaap_" + field_name
 
 
 
